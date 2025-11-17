@@ -19,6 +19,7 @@
     },
     "dependencies": {
         "esbuild": "^0.25.10",
+        "express": "^5.1.0",
         "mongoose": "^8.19.4"
     }
 }
