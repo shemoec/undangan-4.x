@@ -1,3 +1,8 @@
+process.on('uncaughtException', (err) => {
+    console.error('ERROR FATAL NO CAPTURADO: ', err);
+    process.exit(1); // Esto forzará la impresión del error en los logs de Render
+});
+
 // server.js
 const express = require('express');
 const cors = require('cors');
