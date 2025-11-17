@@ -1,181 +1,177 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
-const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// === CONFIG ===
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://127.0.0.1:8080';
+// ====== CONEXIÓN A MONGODB ATLAS ======
+const mongoUri = process.env.MONGODB_URI;
 
-// Archivos JSON para guardar datos de forma simple
-const dataDir = path.join(__dirname, 'data');
-const commentsFile = path.join(dataDir, 'comments.json');
-const rsvpFile = path.join(dataDir, 'rsvp.json');
+if (!mongoUri) {
+  console.error('❌ ERROR: falta la variable de entorno MONGODB_URI');
+  process.exit(1);
+}
 
-// Crear carpeta y archivos si no existen
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
-if (!fs.existsSync(commentsFile)) fs.writeFileSync(commentsFile, '[]');
-if (!fs.existsSync(rsvpFile)) fs.writeFileSync(rsvpFile, '[]');
+mongoose.connect(mongoUri, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+  .then(() => console.log('✅ Conectado a MongoDB Atlas'))
+  .catch(err => {
+    console.error('❌ Error conectando a MongoDB:', err);
+    process.exit(1);
+  });
 
-// Helpers para leer/guardar
-const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
-const writeJson = (file, data) =>
-  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+// ====== ESQUEMAS Y MODELOS ======
+const commentSchema = new mongoose.Schema({
+  id: { type: String, default: uuidv4 },
+  name: String,
+  presence: String, // "1", "2" o "0"
+  message: String,
+  likes: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
+});
 
-app.use(cors({ origin: FRONTEND_ORIGIN }));
+const rsvpSchema = new mongoose.Schema({
+  id: { type: String, default: uuidv4 },
+  name: String,
+  presence: String, // "1" asiste, "2" no asiste
+  guests: { type: Number, default: 1 },
+  createdAt: { type: Date, default: Date.now },
+});
+
+const Comment = mongoose.model('Comment', commentSchema);
+const Rsvp = mongoose.model('Rsvp', rsvpSchema);
+
+// ====== MIDDLEWARE ======
+app.use(cors());
 app.use(express.json());
 
-// === ENDPOINTS COMENTARIOS ===
+// servir archivos estáticos (tu invitación)
+app.use(express.static(path.join(__dirname)));
 
-// Obtener comentarios
-app.get('/api/comments', (req, res) => {
-  const comments = readJson(commentsFile);
-  res.json(comments);
+// ====== ENDPOINTS COMMENTS ======
+
+// GET /api/comments  -> lista de comentarios (ordenados por fecha desc)
+app.get('/api/comments', async (req, res) => {
+  try {
+    const comments = await Comment.find().sort({ createdAt: -1 }).lean();
+    res.json(comments);
+  } catch (err) {
+    console.error('Error al obtener comentarios:', err);
+    res.status(500).json({ error: 'Error obteniendo comentarios' });
+  }
 });
 
-// Crear comentario nuevo
-app.post('/api/comments', (req, res) => {
-  const { name, presence, message } = req.body;
+// POST /api/comments  -> crear nuevo comentario
+app.post('/api/comments', async (req, res) => {
+  try {
+    const { name, presence, message } = req.body;
 
-  if (!name || !message) {
-    return res.status(400).json({ error: 'Faltan datos.' });
+    if (!name || !message) {
+      return res.status(400).json({ error: 'Faltan nombre o mensaje.' });
+    }
+
+    const comment = await Comment.create({
+      name,
+      presence: presence ?? "0",
+      message,
+    });
+
+    res.status(201).json(comment);
+  } catch (err) {
+    console.error('Error al crear comentario:', err);
+    res.status(500).json({ error: 'Error creando comentario' });
   }
-
-  const comments = readJson(commentsFile);
-  const newComment = {
-    id: uuidv4(),
-    name,
-    presence, // 0,1,2 si quieres seguir guardándolo
-    message,
-    likes: 0,                 // 👈 NUEVO
-    createdAt: new Date().toISOString(),
-  };
-
-  comments.unshift(newComment);
-  writeJson(commentsFile, comments);
-
-  res.status(201).json(newComment);
 });
 
-// Sumar like a un comentario
-app.post('/api/comments/:id/like', (req, res) => {
-  const { id } = req.params;
-  const comments = readJson(commentsFile);
-  const index = comments.findIndex(c => c.id === id);
+// PUT /api/comments/:id  -> editar comentario
+app.put('/api/comments/:id', async (req, res) => {
+  try {
+    const { message, name } = req.body;
+    const { id } = req.params;
 
-  if (index === -1) {
-    return res.status(404).json({ error: 'Comentario no encontrado' });
+    const updated = await Comment.findOneAndUpdate(
+      { id },
+      { message, name },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Comentario no encontrado.' });
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error('Error al actualizar comentario:', err);
+    res.status(500).json({ error: 'Error actualizando comentario' });
   }
-
-  if (typeof comments[index].likes !== 'number') {
-    comments[index].likes = 0;
-  }
-
-  comments[index].likes += 1;
-  writeJson(commentsFile, comments);
-
-  res.json({ id, likes: comments[index].likes });
 });
 
-// Editar comentario (por ahora solo mensaje y name)
-app.put('/api/comments/:id', (req, res) => {
-  const { id } = req.params;
-  const { name, message } = req.body;
+// DELETE /api/comments/:id  -> borrar comentario
+app.delete('/api/comments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Comment.findOneAndDelete({ id });
 
-  const comments = readJson(commentsFile);
-  const index = comments.findIndex(c => c.id === id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Comentario no encontrado.' });
+    }
 
-  if (index === -1) {
-    return res.status(404).json({ error: 'Comentario no encontrado' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error al eliminar comentario:', err);
+    res.status(500).json({ error: 'Error eliminando comentario' });
   }
-
-  if (typeof message === 'string' && message.trim().length > 0) {
-    comments[index].message = message.trim();
-  }
-
-  if (typeof name === 'string' && name.trim().length > 0) {
-    comments[index].name = name.trim();
-  }
-
-  writeJson(commentsFile, comments);
-  res.json(comments[index]);
 });
 
-// Eliminar comentario
-app.delete('/api/comments/:id', (req, res) => {
-  const { id } = req.params;
-  const comments = readJson(commentsFile);
-  const index = comments.findIndex(c => c.id === id);
+// ====== ENDPOINTS RSVP ======
 
-  if (index === -1) {
-    return res.status(404).json({ error: 'Comentario no encontrado' });
+// GET /api/rsvp  -> lista todos los RSVP
+app.get('/api/rsvp', async (req, res) => {
+  try {
+    const rsvps = await Rsvp.find().sort({ createdAt: -1 }).lean();
+    res.json(rsvps);
+  } catch (err) {
+    console.error('Error al obtener RSVP:', err);
+    res.status(500).json({ error: 'Error obteniendo RSVP' });
   }
-
-  const removed = comments.splice(index, 1)[0];
-  writeJson(commentsFile, comments);
-
-  res.json({ deleted: true, id: removed.id });
 });
 
+// POST /api/rsvp  -> crear/registrar RSVP
+app.post('/api/rsvp', async (req, res) => {
+  try {
+    const { name, presence, guests } = req.body;
 
-// === ENDPOINTS RSVP (confirmación) ===
+    if (!name || typeof presence === 'undefined') {
+      return res.status(400).json({ error: 'Faltan datos.' });
+    }
 
-app.get('/api/rsvp', (req, res) => {
-  const rsvp = readJson(rsvpFile);
-  res.json(rsvp);
-});
+    const guestsNumber = Number.isFinite(+guests) && +guests > 0 ? +guests : 1;
 
-app.post('/api/rsvp', (req, res) => {
-  const { name, presence, guests } = req.body;
-  if (!name || typeof presence === 'undefined') {
-    return res.status(400).json({ error: 'Faltan datos.' });
+    const rsvp = await Rsvp.create({
+      name,
+      presence,
+      guests: guestsNumber,
+    });
+
+    res.status(201).json(rsvp);
+  } catch (err) {
+    console.error('Error al guardar RSVP:', err);
+    res.status(500).json({ error: 'Error guardando RSVP' });
   }
-
-  const rsvps = readJson(rsvpFile);
-  const newRsvp = {
-    id: uuidv4(),
-    name,
-    presence,      // 1 viene, 2 no viene
-    guests: guests || 1,
-    createdAt: new Date().toISOString(),
-  };
-
-  rsvps.unshift(newRsvp);
-  writeJson(rsvpFile, rsvps);
-
-  res.status(201).json(newRsvp);
 });
 
+// ====== CATCH-ALL PARA SPA (opcional) ======
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// ====== INICIAR SERVIDOR ======
 app.listen(PORT, () => {
-  console.log(`Backend escuchando en http://localhost:${PORT}`);
+  console.log(`✅ Backend escuchando en http://localhost:${PORT}`);
 });
-
-app.post('/api/rsvp', (req, res) => {
-  const { name, presence, guests } = req.body;
-  if (!name || typeof presence === 'undefined') {
-    return res.status(400).json({ error: 'Faltan datos.' });
-  }
-
-  const rsvps = readJson(rsvpFile);
-  const newRsvp = {
-    id: uuidv4(),
-    name,
-    presence,      // 1 viene, 2 no viene
-    guests: guests || 1,
-    createdAt: new Date().toISOString(),
-  };
-
-  rsvps.unshift(newRsvp);
-  writeJson(rsvpFile, rsvps);
-
-  res.status(201).json(newRsvp);
-});
-
-app.listen(PORT, () => {
-  console.log(`Backend escuchando en http://localhost:${PORT}`);
-});
-
-
