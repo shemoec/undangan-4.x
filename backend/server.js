@@ -51,8 +51,9 @@ const Rsvp = mongoose.model('Rsvp', rsvpSchema);
 app.use(cors());
 app.use(express.json());
 
-// servir archivos estáticos (tu invitación)
-app.use(express.static(path.join(__dirname)));
+// servir archivos estáticos (index.html, dashboard.html, css, js, assets, etc.)
+app.use(express.static(path.join(__dirname, '..')));
+
 
 // ====== ENDPOINTS COMMENTS ======
 
@@ -164,11 +165,6 @@ app.post('/api/rsvp', async (req, res) => {
     console.error('Error al guardar RSVP:', err);
     res.status(500).json({ error: 'Error guardando RSVP' });
   }
-});
-
-// ====== CATCH-ALL PARA SPA (opcional) ======
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // ====== INICIAR SERVIDOR ======
