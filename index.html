@@ -63,7 +63,6 @@
 
     <!-- Dependencies JS -->
     <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha256-5P1JGBOIxI7FBAvT/mb1fCnI5n/NhQKzNUuW7Hq0fMc=" crossorigin="anonymous"></script>
-    <script src="./dist/guest.js"></script>
 </head>
 
 <!-- Jika tidak menggunakan komentar, hapus atribut data-key dan data-url, serta abaikan file dashboard.html. -->
@@ -1215,6 +1214,48 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+<script>
+  // Usar siempre la URL del sitio desplegado
+  const API_BASE = window.location.origin;
+
+  async function loadComments() {
+    const commentsContainer = document.getElementById('comments');
+    if (!commentsContainer) return;
+
+    try {
+      const res = await fetch(API_BASE + '/api/comments');
+      if (!res.ok) {
+        console.error('Error al cargar comentarios:', res.status);
+        commentsContainer.innerHTML =
+          '<p class="text-center text-danger small">No se pudieron cargar los comentarios.</p>';
+        return;
+      }
+
+      const comments = await res.json();
+
+      if (!comments.length) {
+        commentsContainer.innerHTML =
+          '<p class="text-center small">Aún no hay comentarios, sé el primero en escribir algo bonito 🥹</p>';
+        return;
+      }
+
+      commentsContainer.innerHTML = comments.map(c => `
+        <div class="border rounded-4 shadow-sm p-2 mb-2">
+          <p class="m-0 fw-bold">${c.name || 'Invitado'}</p>
+          <p class="m-0">${c.message || ''}</p>
+        </div>
+      `).join('');
+    } catch (err) {
+      console.error('Error de red al cargar comentarios:', err);
+      commentsContainer.innerHTML =
+        '<p class="text-center text-danger small">Error de conexión con el servidor.</p>';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadComments();
+  });
+</script>
 
 
 
