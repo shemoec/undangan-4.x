@@ -45,7 +45,7 @@
 
 <!-- <html lang="en" data-bs-theme="auto"> ['auto', 'dark', 'light'] -->
 
-<body data-url="http://localhost:3000">
+<body>
 
     <!-- Nav bottom -->
     <nav class="navbar navbar-expand fixed-bottom rounded-top-4 border-top d-md-none d-lg-none d-xl-none p-0">
@@ -420,8 +420,9 @@
     </div>
 
     <script>
-    // Tomamos la URL del backend desde el atributo del body
-    const API_BASE = document.body.getAttribute('data-url') || 'http://localhost:3000';
+    // Primero mira data-url en el <body>, si no, usa el mismo dominio de la página
+    const API_BASE = document.body.getAttribute('data-url') || window.location.origin;
+
 
     async function loadDashboard() {
     const nameEl           = document.getElementById('dashboard-name');
